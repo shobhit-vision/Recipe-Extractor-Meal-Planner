@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: recipe-extractor-meal-planner
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: APP_NAME
+        value: Recipe Extractor & Meal Planner
+      - key: API_TITLE
+        value: Recipe Extractor & Meal Planner API
+      - key: API_VERSION
+        value: 1.0.0
+      - key: GROQ_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
