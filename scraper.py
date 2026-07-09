@@ -12,9 +12,9 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 
 # ─── Fraction parsing ─────────────────────────────────────────────────────────
-# Map unicode vulgar fractions → float for arithmetic
+# Map unicode raw fractions → float for arithmetic
 
-VULGAR_TO_FLOAT = {
+RAW_TO_FLOAT = {
     "½": 1/2,  "⅓": 1/3,  "⅔": 2/3,
     "¼": 1/4,  "¾": 3/4,
     "⅕": 1/5,  "⅖": 2/5,  "⅗": 3/5,  "⅘": 4/5,
@@ -22,10 +22,10 @@ VULGAR_TO_FLOAT = {
     "⅛": 1/8,  "⅜": 3/8,  "⅝": 5/8,  "⅞": 7/8,
 }
 
-# Map float → unicode vulgar fraction character (fractional part only)
-FLOAT_TO_VULGAR = {v: k for k, v in VULGAR_TO_FLOAT.items()}
+# Map float → unicode raw fraction character (fractional part only)
+FLOAT_TO_RAW = {v: k for k, v in RAW_TO_FLOAT.items()}
 # Add a few extra tolerance entries for common results of scaling
-FLOAT_TO_VULGAR.update({
+FLOAT_TO_RAW.update({
     round(1/3, 10): "⅓",
     round(2/3, 10): "⅔",
     round(1/6, 10): "⅙",
@@ -38,12 +38,12 @@ def parse_qty(s: str):
     s = s.strip()
     if not s:
         return None
-    if s in VULGAR_TO_FLOAT:
-        return VULGAR_TO_FLOAT[s]
+    if s in RAW_TO_FLOAT:
+        return RAW_TO_FLOAT[s]
     total = 0.0
     for part in s.split():
-        if part in VULGAR_TO_FLOAT:
-            total += VULGAR_TO_FLOAT[part]
+        if part in RAW_TO_FLOAT:
+            total += RAW_TO_FLOAT[part]
         elif "/" in part:
             try:
                 n, d = part.split("/")
@@ -59,7 +59,7 @@ def parse_qty(s: str):
 
 
 def fmt_qty(v: float) -> str:
-    """Convert float back to unicode vulgar fraction string (no decimals)."""
+    """Convert float back to unicode raw fraction string (no decimals)."""
     if v is None or v == 0:
         return ""
 
@@ -67,7 +67,7 @@ def fmt_qty(v: float) -> str:
     remainder = round(v - whole, 10)
 
     frac_char = ""
-    for fval, char in FLOAT_TO_VULGAR.items():
+    for fval, char in FLOAT_TO_RAW.items():
         if abs(remainder - fval) < 0.005:
             frac_char = char
             break
@@ -80,7 +80,7 @@ def fmt_qty(v: float) -> str:
         return str(whole)
 
     best_diff, best_char = min(
-        ((abs(remainder - fv), ch) for fv, ch in FLOAT_TO_VULGAR.items()),
+        ((abs(remainder - fv), ch) for fv, ch in FLOAT_TO_RAW.items()),
         key=lambda x: x[0]
     )
     return f"{whole} {best_char}" if whole else best_char
