@@ -68,6 +68,15 @@ class MealPlanRequest(BaseModel):
     user_query: str
     recipe_ids: List[int]
 
+class GroqKeyRequest(BaseModel):
+    api_key: str
+
+class GroqKeyResponse(BaseModel):
+    success: bool
+    message: str
+    requires_key: bool = False
+    groq_url: str = "https://console.groq.com/keys"
+
 
 # ---------- Helper: format recipes for context ----------
 def format_recipes_for_context(recipes_data: List[dict]) -> str:
@@ -111,7 +120,7 @@ def format_recipes_for_context(recipes_data: List[dict]) -> str:
         # Nutrition
         nutrition = recipe.get('nutrition_estimate', {})
         if nutrition:
-            parts.append(f"Nutrition (per serving):")
+            parts.append(f"  Nutrition (per serving):")
             parts.append(f"  Calories: {nutrition.get('calories', 'N/A')}")
             parts.append(f"  Protein: {nutrition.get('protein', 'N/A')}")
             parts.append(f"  Carbs: {nutrition.get('carbs', 'N/A')}")
@@ -169,6 +178,46 @@ async def status():
 async def health_check():
     return {"status": "healthy", "service": "recipe-scraper", "version": "1.0.0"}
 
+@app.post("/set-groq-key")
+async def set_groq_key(request: GroqKeyRequest):
+    """
+    Endpoint to set a user-provided Groq API key when tokens are exhausted.
+    """
+    from llm import set_user_groq_key, get_api_key_status
+    
+    success, message = set_user_groq_key(request.api_key)
+    
+    if success:
+        return {
+            "success": True,
+            "message": message,
+            "status": get_api_key_status()
+        }
+    else:
+        raise HTTPException(status_code=400, detail=message)
+
+@app.get("/groq-key-status")
+async def get_groq_key_status():
+    """
+    Check the current Groq API key status.
+    """
+    from llm import get_api_key_status
+    return get_api_key_status()
+
+@app.post("/reset-groq-key")
+async def reset_groq_key():
+    """
+    Reset to using the environment variable Groq API key.
+    """
+    from llm import reset_to_env_key, get_api_key_status
+    
+    reset_to_env_key()
+    return {
+        "success": True,
+        "message": "Reset to environment API key",
+        "status": get_api_key_status()
+    }
+
 
 # ---------- Extract raw text ----------
 @app.post("/extract-raw")
@@ -213,24 +262,75 @@ async def ai_parse_recipe(request: ParseRequest):
 # ---------- Save recipe to Supabase ----------
 @app.post("/save-recipe")
 async def save_recipe(request: SaveRecipeRequest):
-    """Save the structured recipe via Supabase."""
+    """Save the structured recipe via Supabase with duplicate checking."""
     recipe_data = request.recipe
+    
+    # Extract title, cuisine, and difficulty for duplicate checking
+    title = recipe_data.get("title", "").strip().lower()
+    cuisine = recipe_data.get("cuisine", "").strip().lower()
+    difficulty = recipe_data.get("difficulty", "").strip().lower()
+    
+    # Check if recipe already exists (same title + cuisine + difficulty)
+    try:
+        # Fetch all existing recipes to check for duplicates
+        existing_result = supabase_client.table("recipe").select("recipe_data").execute()
+        
+        if existing_result.data:
+            for existing in existing_result.data:
+                existing_recipe = existing.get("recipe_data") or {}
+                existing_title = existing_recipe.get("title", "").strip().lower()
+                existing_cuisine = existing_recipe.get("cuisine", "").strip().lower()
+                existing_difficulty = existing_recipe.get("difficulty", "").strip().lower()
+                
+                # Compare title, cuisine, and difficulty
+                if (title == existing_title and 
+                    cuisine == existing_cuisine and 
+                    difficulty == existing_difficulty):
+                    raise HTTPException(
+                        status_code=409, 
+                        detail=f"Recipe already exists! A recipe with title '{recipe_data.get('title')}', cuisine '{recipe_data.get('cuisine')}', and difficulty '{recipe_data.get('difficulty')}' is already saved."
+                    )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error checking duplicates: {str(e)}")
+    
+    # If no duplicate found, proceed with saving
     new_row = {"recipe_data": recipe_data}
-
+    
     try:
         result = supabase_client.table("recipe").insert(new_row).execute()
-
+        
         if hasattr(result, 'error') and result.error:
             raise HTTPException(status_code=500, detail=str(result.error))
-
+        
         inserted_id = result.data[0]["id"]
         return {"id": inserted_id, "message": "Recipe saved successfully"}
-
+    
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ---------- Delete recipe ----------
+@app.delete("/delete-recipe/{recipe_id}")
+async def delete_recipe(recipe_id: str):
+    try:
+        result = supabase_client.table("recipe").delete().eq("id", recipe_id).execute()
+        
+        if hasattr(result, 'error') and result.error:
+            raise HTTPException(status_code=500, detail=str(result.error))
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Recipe not found")
+        
+        return {"message": "Recipe deleted successfully", "id": recipe_id}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ---------- Get all recipes ----------
 @app.get("/recipes")
